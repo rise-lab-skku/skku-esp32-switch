@@ -41,10 +41,13 @@
  *--------------------------*/
 
 // Please connect 220V AC to NC (Normally Closed) and COM (Common) of relay.
-#define RELAY_GPIO 26
-#define LED_BUILTIN 2
+#define RELAY_GPIO GPIO_NUM_26
+#define LED_BUILTIN GPIO_NUM_2
 
-bool g_switch_is_on = false;
+// DO NOT USE gpio_get_level(RELAY_GPIO)!
+// gpio_get_level() always returns 0 for pins of GPIO_MODE_OUTPUT.
+// See: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/gpio.html#_CPPv414gpio_get_level10gpio_num_t
+bool b_switch_is_on = false;
 
 static void configure_gpio(void)
 {
@@ -57,10 +60,14 @@ static void configure_gpio(void)
 
 void set_switch(bool new_state)
 {
-  if (g_switch_is_on != new_state)
+  esp_err_t err = gpio_set_level(RELAY_GPIO, new_state ? 1 : 0);
+  if (err == ESP_OK)
   {
-    g_switch_is_on = new_state;
-    gpio_set_level(LED_BUILTIN, g_switch_is_on ? 1 : 0);
+    b_switch_is_on = new_state;
+  }
+  else
+  {
+    printf("Failed to set switch state: %d\n", err);
   }
 }
 
@@ -77,7 +84,7 @@ void blink_led_timer_callback(rcl_timer_t *timer, int64_t last_call_time)
   if (now > _next_toggle_msec)
   {
     const int64_t led_interval_msec = 2000;
-    const int64_t led_on = (g_switch_is_on ? 1900 : 100);
+    const int64_t led_on = (b_switch_is_on ? 1900 : 100);
     if (timer != NULL)
     {
       if (_prev_led_level == 0)
@@ -116,7 +123,7 @@ void state_publisher_callback(rcl_timer_t *timer, int64_t last_call_time)
   RCLC_UNUSED(last_call_time);
   if (timer != NULL)
   {
-    msg.data = g_switch_is_on;
+    msg.data = b_switch_is_on;
     RCSOFTCHECK(rcl_publish(&publisher, &msg, NULL));
   }
 }
@@ -131,11 +138,11 @@ void service_callback(const void *req, void *res)
   std_srvs__srv__SetBool_Response *res_in = (std_srvs__srv__SetBool_Response *)res;
 
   // Request
-  printf("Service request: %d (Current state: %d)\n", req_in->data, g_switch_is_on);
+  printf("Service request: %d (Current state: %d)\n", req_in->data, b_switch_is_on);
   set_switch(req_in->data);
 
   // Response
-  res_in->success = (g_switch_is_on == req_in->data);
+  res_in->success = (b_switch_is_on == req_in->data);
   /*
    * NOTE: `message.data` occurs "microROS service hangs on first call" issue.
    * See: https://answers.ros.org/question/410649/microros-service-hangs-on-first-call/
